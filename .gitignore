@@ -1,0 +1,12 @@
+backend/private-key.pem
+backend/uv.lock
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz
+*.pyzwzw
+*.pyzwzwzw

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const API_URL = "http://localhost:8000";
 
@@ -21,26 +21,51 @@ interface Repository {
   updated_at: string;
 }
 
+interface StoredUserData {
+  user: GitHubUser;
+  installationId: number | null;
+}
+
 export function GitHubConnect() {
   const [user, setUser] = useState<GitHubUser | null>(null);
+  const [installationId, setInstallationId] = useState<number | null>(null);
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Ref to prevent double-processing OAuth callbacks in React StrictMode
+  const processingRef = useRef(false);
 
-  // Check for OAuth callback on mount
+  // Check for callback on mount
   useEffect(() => {
+    // Prevent double-processing in React StrictMode
+    if (processingRef.current) return;
+    
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
     const state = urlParams.get("state");
+    const installation_id = urlParams.get("installation_id");
+    const setup_action = urlParams.get("setup_action");
 
-    if (code && state) {
-      handleCallback(code, state);
+    // Handle GitHub App installation callback
+    if (installation_id && setup_action) {
+      processingRef.current = true;
+      window.history.replaceState({}, "", "/"); // Clear URL immediately
+      handleInstallationCallback(parseInt(installation_id), setup_action);
+    }
+    // Handle OAuth callback
+    else if (code) {
+      processingRef.current = true;
+      window.history.replaceState({}, "", "/"); // Clear URL immediately
+      handleOAuthCallback(code, state);
     }
 
     // Check for stored user
-    const storedUser = localStorage.getItem("github_user");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    const storedData = localStorage.getItem("github_user_data");
+    if (storedData) {
+      const data: StoredUserData = JSON.parse(storedData);
+      setUser(data.user);
+      setInstallationId(data.installationId);
     }
   }, []);
 
@@ -49,39 +74,62 @@ export function GitHubConnect() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/auth/github/login`);
+      const response = await fetch(`${API_URL}/auth/github/install`);
       const data = await response.json();
 
       if (data.url) {
         // Store state for verification
         localStorage.setItem("oauth_state", data.state);
-        // Redirect to GitHub
+        // Redirect to GitHub App installation
         window.location.href = data.url;
       }
     } catch (err) {
-      setError("Failed to initiate GitHub login");
+      setError("Failed to initiate GitHub connection");
       setLoading(false);
     }
   };
 
-  const handleCallback = async (code: string, state: string) => {
+  const handleInstallationCallback = async (
+    installation_id: number,
+    setup_action: string
+  ) => {
     setLoading(true);
     setError(null);
 
-    // Verify state matches
-    const storedState = localStorage.getItem("oauth_state");
-    if (state !== storedState) {
-      setError("Invalid state token - possible CSRF attack");
+    try {
+      // Call backend to get OAuth URL
+      const response = await fetch(
+        `${API_URL}/auth/github/callback?installation_id=${installation_id}&setup_action=${setup_action}`
+      );
+      const data = await response.json();
+
+      if (data.needs_oauth && data.oauth_url) {
+        // Store installation_id for after OAuth
+        localStorage.setItem("pending_installation_id", installation_id.toString());
+        localStorage.setItem("oauth_state", data.state);
+        // Redirect to OAuth
+        window.location.href = data.oauth_url;
+      }
+    } catch (err) {
+      setError("Failed to complete installation");
       setLoading(false);
-      // Clean up URL
-      window.history.replaceState({}, "", "/");
-      return;
     }
+  };
+
+  const handleOAuthCallback = async (code: string, state: string | null) => {
+    setLoading(true);
+    setError(null);
 
     try {
-      const response = await fetch(
-        `${API_URL}/auth/github/callback?code=${code}&state=${state}`
-      );
+      // Get the stored installation_id from the first step (app installation)
+      const pendingInstallationId = localStorage.getItem("pending_installation_id");
+      
+      // Build query params including installation_id if we have it
+      const params = new URLSearchParams({ code });
+      if (state) params.append("state", state);
+      if (pendingInstallationId) params.append("installation_id", pendingInstallationId);
+      
+      const response = await fetch(`${API_URL}/auth/github/callback?${params}`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -90,15 +138,37 @@ export function GitHubConnect() {
 
       if (data.success && data.user) {
         setUser(data.user);
-        localStorage.setItem("github_user", JSON.stringify(data.user));
+        setInstallationId(data.installation_id);
+        
+        // Store user data
+        const userData: StoredUserData = {
+          user: data.user,
+          installationId: data.installation_id,
+        };
+        localStorage.setItem("github_user_data", JSON.stringify(userData));
         localStorage.removeItem("oauth_state");
+        localStorage.removeItem("pending_installation_id");
+        
+        // Auto-fetch repos if we have an installation
+        if (data.installation_id) {
+          try {
+            const reposResponse = await fetch(
+              `${API_URL}/github/repos?user_id=${data.user.id}`
+            );
+            if (reposResponse.ok) {
+              const reposData = await reposResponse.json();
+              setRepos(reposData);
+            }
+          } catch (repoErr) {
+            console.error("Failed to auto-fetch repos:", repoErr);
+            // Don't show error - user can manually click Load Repos
+          }
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to complete login");
     } finally {
       setLoading(false);
-      // Clean up URL
-      window.history.replaceState({}, "", "/");
     }
   };
 
@@ -128,10 +198,37 @@ export function GitHubConnect() {
     }
   };
 
-  const handleDisconnect = () => {
+  const handleModifyAccess = async () => {
+    try {
+      const response = await fetch(`${API_URL}/github/installation-url`);
+      const data = await response.json();
+      
+      if (data.configure_url) {
+        window.location.href = data.configure_url;
+      }
+    } catch (err) {
+      setError("Failed to get configuration URL");
+    }
+  };
+
+  const handleDisconnect = async () => {
+    // Call backend to clear user data
+    if (user) {
+      try {
+        await fetch(`${API_URL}/auth/logout?user_id=${user.id}`, { method: "POST" });
+      } catch (err) {
+        // Continue with local cleanup even if backend call fails
+        console.error("Failed to logout from backend:", err);
+      }
+    }
+    
+    // Clear local state
     setUser(null);
+    setInstallationId(null);
     setRepos([]);
-    localStorage.removeItem("github_user");
+    localStorage.removeItem("github_user_data");
+    localStorage.removeItem("pending_installation_id");
+    localStorage.removeItem("oauth_state");
   };
 
   return (
@@ -150,15 +247,14 @@ export function GitHubConnect() {
           </div>
           <h2>Connect to GitHub</h2>
           <p className="description">
-            Click the button below to authenticate with GitHub and grant read
-            access to your repositories.
+            Install our GitHub App and select which repositories you want to grant access to.
           </p>
           <button
             onClick={handleConnect}
             disabled={loading}
             className="connect-button"
           >
-            {loading ? "Connecting..." : "Connect GitHub"}
+            {loading ? "Connecting..." : "Install GitHub App"}
           </button>
         </div>
       ) : (
@@ -172,23 +268,53 @@ export function GitHubConnect() {
             <div className="user-details">
               <h2>{user.name || user.login}</h2>
               <p className="username">@{user.login}</p>
+              {installationId && (
+                <p className="installation-status">App installed</p>
+              )}
             </div>
-            <button onClick={handleDisconnect} className="disconnect-button">
-              Disconnect
-            </button>
+            <div className="user-actions">
+              <button onClick={handleDisconnect} className="disconnect-button">
+                Disconnect
+              </button>
+              <a
+                href="https://github.com/settings/installations"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="uninstall-link"
+              >
+                Uninstall from GitHub
+              </a>
+            </div>
           </div>
 
           <div className="repos-section">
             <div className="repos-header">
-              <h3>Your Repositories</h3>
-              <button
-                onClick={fetchRepos}
-                disabled={loading}
-                className="fetch-button"
-              >
-                {loading ? "Loading..." : repos.length > 0 ? "Refresh" : "Load Repos"}
-              </button>
+              <h3>Selected Repositories</h3>
+              <div className="repos-actions">
+                <button
+                  onClick={handleModifyAccess}
+                  className="modify-button"
+                >
+                  Modify Access
+                </button>
+                <button
+                  onClick={fetchRepos}
+                  disabled={loading}
+                  className="fetch-button"
+                >
+                  {loading ? "Loading..." : repos.length > 0 ? "Refresh" : "Load Repos"}
+                </button>
+              </div>
             </div>
+
+            {!installationId && (
+              <div className="no-installation">
+                <p>No repositories selected yet.</p>
+                <button onClick={handleConnect} className="install-button">
+                  Install GitHub App to select repos
+                </button>
+              </div>
+            )}
 
             {repos.length > 0 && (
               <ul className="repos-list">
@@ -221,6 +347,12 @@ export function GitHubConnect() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {installationId && repos.length === 0 && !loading && (
+              <p className="empty-repos">
+                Click "Load Repos" to see your selected repositories.
+              </p>
             )}
           </div>
         </div>
