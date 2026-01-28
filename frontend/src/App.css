@@ -1,0 +1,273 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.app-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.app-header h1 {
+  font-size: 2.5rem;
+  color: #ffffff;
+  margin-bottom: 0.5rem;
+}
+
+.app-header p {
+  color: #8b8b9a;
+  font-size: 1.1rem;
+}
+
+.app-main {
+  width: 100%;
+  max-width: 600px;
+}
+
+/* GitHub Connect Component Styles */
+.github-connect {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.connect-section {
+  padding: 3rem;
+  text-align: center;
+}
+
+.github-icon {
+  color: #24292e;
+  margin-bottom: 1.5rem;
+}
+
+.connect-section h2 {
+  color: #24292e;
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+}
+
+.description {
+  color: #586069;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+.connect-button {
+  background: #24292e;
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.connect-button:hover:not(:disabled) {
+  background: #2f363d;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(36, 41, 46, 0.4);
+}
+
+.connect-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Connected Section Styles */
+.connected-section {
+  padding: 0;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #f6f8fa;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid #e1e4e8;
+}
+
+.user-details {
+  flex: 1;
+}
+
+.user-details h2 {
+  color: #24292e;
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.username {
+  color: #586069;
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0 0;
+}
+
+.disconnect-button {
+  background: transparent;
+  color: #cb2431;
+  border: 1px solid #cb2431;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.disconnect-button:hover {
+  background: #cb2431;
+  color: white;
+}
+
+/* Repos Section Styles */
+.repos-section {
+  padding: 1.5rem;
+}
+
+.repos-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.repos-header h3 {
+  color: #24292e;
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.fetch-button {
+  background: #2ea44f;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fetch-button:hover:not(:disabled) {
+  background: #22863a;
+}
+
+.fetch-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Repos List Styles */
+.repos-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.repo-item {
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.repo-item:hover {
+  border-color: #0366d6;
+  box-shadow: 0 2px 8px rgba(3, 102, 214, 0.1);
+}
+
+.repo-link {
+  display: block;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.repo-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.repo-name {
+  color: #0366d6;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.private-badge {
+  background: #ffefc6;
+  color: #735c0f;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  text-transform: uppercase;
+}
+
+.repo-description {
+  color: #586069;
+  font-size: 0.875rem;
+  margin: 0 0 0.75rem 0;
+  line-height: 1.4;
+}
+
+.repo-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: #586069;
+}
+
+.repo-language {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.repo-language::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3178c6;
+}
+
+.repo-stars {
+  display: flex;
+  align-items: center;
+}
+
+/* Error Message Styles */
+.error-message {
+  background: #ffeef0;
+  color: #cb2431;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  border-top: 1px solid #f97583;
+}
