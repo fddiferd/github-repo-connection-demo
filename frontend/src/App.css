@@ -361,3 +361,444 @@
   font-size: 0.9rem;
   border-top: 1px solid #f97583;
 }
+
+/* Selection Section Styles */
+.selection-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.selection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #f6f8fa;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+}
+
+.selection-info {
+  margin: 0;
+  color: #586069;
+  font-size: 0.9rem;
+}
+
+.selection-counter {
+  font-weight: 600;
+  color: #0366d6;
+  font-size: 0.9rem;
+}
+
+.repos-list.selectable {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.repos-list.selectable .repo-item {
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  background: white;
+  margin: 0;
+}
+
+.repos-list.selectable .repo-item:hover {
+  border-color: #0366d6;
+  box-shadow: 0 2px 6px rgba(3, 102, 214, 0.1);
+}
+
+.repos-list.selectable .repo-item.selected {
+  border-color: #0366d6;
+  background: #f1f8ff;
+  box-shadow: 0 0 0 1px #0366d6;
+}
+
+.repos-list.selectable .repo-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.repos-list.selectable .repo-item.disabled:hover {
+  border-color: #e1e4e8;
+  box-shadow: none;
+}
+
+.repo-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: inherit;
+  width: 100%;
+}
+
+.repo-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: inherit;
+  accent-color: #0366d6;
+  flex-shrink: 0;
+}
+
+.repo-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.repo-content .repo-name {
+  font-weight: 500;
+  color: #24292e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.analyze-button {
+  background: #2ea44f;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  align-self: flex-start;
+}
+
+.analyze-button:hover:not(:disabled) {
+  background: #22863a;
+}
+
+.analyze-button:disabled {
+  background: #94d3a2;
+  cursor: not-allowed;
+}
+
+/* Selection Actions */
+.selection-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.cancel-selection-btn {
+  background: transparent;
+  color: #586069;
+  border: 1px solid #e1e4e8;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cancel-selection-btn:hover {
+  background: #f6f8fa;
+  border-color: #d1d5da;
+}
+
+/* Search Filter */
+.search-filter {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 0.875rem;
+  font-size: 0.9rem;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  background: white;
+  color: #24292e;
+  transition: all 0.15s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #0366d6;
+  box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+}
+
+.search-input::placeholder {
+  color: #959da5;
+}
+
+.clear-search {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.clear-search:hover {
+  background: #f6f8fa;
+}
+
+.clear-search svg {
+  width: 14px;
+  height: 14px;
+  color: #6a737d;
+}
+
+/* Analysis Results - Clean Card Design */
+.analyze-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.result-card {
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  padding: 1.25rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.result-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.result-card-header {
+  margin-bottom: 1rem;
+}
+
+.result-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.result-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.remove-repo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.remove-repo-btn:hover {
+  background: #ffeef0;
+  border-color: #cb2431;
+}
+
+.remove-repo-btn svg {
+  width: 16px;
+  height: 16px;
+  color: #6a737d;
+}
+
+.remove-repo-btn:hover svg {
+  color: #cb2431;
+}
+
+.result-repo-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #24292e;
+}
+
+.result-full-name {
+  font-size: 0.85rem;
+  color: #6a737d;
+}
+
+.status-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.status-icon.success {
+  color: #22863a;
+}
+
+.status-icon.error {
+  color: #cb2431;
+}
+
+/* dbt Path Section */
+.dbt-path-section {
+  margin-top: 0.5rem;
+}
+
+.dbt-path-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #586069;
+  margin-bottom: 0.5rem;
+}
+
+.dbt-path-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dbt-path-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #24292e;
+  transition: all 0.15s ease;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.dbt-path-input:focus {
+  outline: none;
+  border-color: #0366d6;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+}
+
+.dbt-path-input::placeholder {
+  color: #959da5;
+}
+
+.path-validation-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.path-validation-icon .check-icon {
+  width: 20px;
+  height: 20px;
+  color: #22863a;
+}
+
+.path-validation-icon .x-icon {
+  width: 20px;
+  height: 20px;
+  color: #cb2431;
+}
+
+.path-validation-icon .spinner {
+  width: 16px;
+  height: 16px;
+  color: #6a737d;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.path-error-hint {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #cb2431;
+}
+
+.clone-error {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #ffeef0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #cb2431;
+}
+
+/* Path Action Buttons (Save/Cancel) */
+.path-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+}
+
+.save-path-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: #2ea44f;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.save-path-btn:hover:not(:disabled) {
+  background: #22863a;
+}
+
+.save-path-btn:disabled {
+  background: #94d3a2;
+  cursor: not-allowed;
+}
+
+.cancel-path-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancel-path-btn:hover {
+  background: #ffeef0;
+  border-color: #cb2431;
+}
+
+.cancel-path-btn svg {
+  width: 14px;
+  height: 14px;
+  color: #6a737d;
+}
+
+.cancel-path-btn:hover svg {
+  color: #cb2431;
+}

@@ -19,11 +19,54 @@ interface Repository {
   language: string | null;
   stargazers_count: number;
   updated_at: string;
+  clone_status?: {
+    success: boolean;
+    path?: string;
+    cached?: boolean;
+    error?: string;
+  };
+  dbt_project?: {
+    found: boolean;
+    path?: string;
+    depth?: number;
+    relative_path?: string;
+  };
+}
+
+interface ReposResponse {
+  requires_selection: boolean;
+  max_selection?: number;
+  repos: Repository[];
+}
+
+interface AnalyzeResult {
+  full_name: string;
+  owner: string;
+  repo: string;
+  clone_status: {
+    success: boolean;
+    path?: string;
+    cached?: boolean;
+    error?: string;
+  };
+  dbt_project?: {
+    found: boolean;
+    path?: string;
+    depth?: number;
+    relative_path?: string;
+  };
 }
 
 interface StoredUserData {
   user: GitHubUser;
   installationId: number | null;
+}
+
+interface StoredAnalysisData {
+  analyzeResults: AnalyzeResult[];
+  dbtPaths: Record<string, string>;
+  originalPaths: Record<string, string>;
+  pathValidation: Record<string, boolean | null>;
 }
 
 export function GitHubConnect() {
@@ -33,8 +76,26 @@ export function GitHubConnect() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Selection state for when > 5 repos
+  const [requiresSelection, setRequiresSelection] = useState(false);
+  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
+  const [analyzeResults, setAnalyzeResults] = useState<AnalyzeResult[] | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('');
+  const MAX_SELECTION = 5;
+  
+  // Editable dbt path state
+  const [dbtPaths, setDbtPaths] = useState<Record<string, string>>({});
+  const [originalPaths, setOriginalPaths] = useState<Record<string, string>>({});
+  const [pathValidation, setPathValidation] = useState<Record<string, boolean | null>>({});
+  const [validatingPaths, setValidatingPaths] = useState<Record<string, boolean>>({});
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  
   // Ref to prevent double-processing OAuth callbacks in React StrictMode
   const processingRef = useRef(false);
+  
+  // Ref to call fetchRepos from within useEffect
+  const fetchReposRef = useRef<(() => Promise<void>) | null>(null);
 
   // Check for callback on mount
   useEffect(() => {
@@ -60,13 +121,57 @@ export function GitHubConnect() {
       handleOAuthCallback(code, state);
     }
 
-    // Check for stored user
-    const storedData = localStorage.getItem("github_user_data");
-    if (storedData) {
-      const data: StoredUserData = JSON.parse(storedData);
-      setUser(data.user);
-      setInstallationId(data.installationId);
-    }
+    // Check for stored user and restore session
+    const restoreSession = async () => {
+      const storedData = localStorage.getItem("github_user_data");
+      if (storedData) {
+        const data: StoredUserData = JSON.parse(storedData);
+        setUser(data.user);
+        setInstallationId(data.installationId);
+        
+        // Restore stored analysis data if available
+        const storedAnalysis = localStorage.getItem("github_analysis_data");
+        if (storedAnalysis) {
+          try {
+            const analysisData: StoredAnalysisData = JSON.parse(storedAnalysis);
+            setAnalyzeResults(analysisData.analyzeResults);
+            setDbtPaths(analysisData.dbtPaths);
+            setOriginalPaths(analysisData.originalPaths);
+            setPathValidation(analysisData.pathValidation);
+          } catch (err) {
+            console.error("Failed to restore analysis data:", err);
+          }
+        }
+        
+        // Restore backend session
+        if (data.installationId) {
+          try {
+            const response = await fetch(
+              `${API_URL}/auth/restore?user_id=${data.user.id}&installation_id=${data.installationId}`,
+              { method: 'POST' }
+            );
+            const result = await response.json();
+            if (!result.success) {
+              console.warn("Session restore failed:", result.message);
+              // Clear stored data if installation is no longer valid
+              if (result.message?.includes("Failed to get installation token")) {
+                localStorage.removeItem("github_user_data");
+                localStorage.removeItem("github_analysis_data");
+                setUser(null);
+                setInstallationId(null);
+              }
+            } else if (!storedAnalysis) {
+              // Session restored successfully and no cached analysis - fetch repos
+              fetchReposRef.current?.();
+            }
+          } catch (err) {
+            console.error("Failed to restore session:", err);
+          }
+        }
+      }
+    };
+    
+    restoreSession();
   }, []);
 
   const handleConnect = async () => {
@@ -156,8 +261,19 @@ export function GitHubConnect() {
               `${API_URL}/github/repos?user_id=${data.user.id}`
             );
             if (reposResponse.ok) {
-              const reposData = await reposResponse.json();
-              setRepos(reposData);
+              const reposData: ReposResponse = await reposResponse.json();
+              setRepos(reposData.repos);
+              setRequiresSelection(reposData.requires_selection);
+              if (!reposData.requires_selection) {
+                // Repos were auto-analyzed, show results
+                setAnalyzeResults(reposData.repos.map(r => ({
+                  full_name: r.full_name,
+                  owner: r.full_name.split('/')[0],
+                  repo: r.name,
+                  clone_status: r.clone_status || { success: false },
+                  dbt_project: r.dbt_project,
+                })));
+              }
             }
           } catch (repoErr) {
             console.error("Failed to auto-fetch repos:", repoErr);
@@ -182,13 +298,29 @@ export function GitHubConnect() {
       const response = await fetch(
         `${API_URL}/github/repos?user_id=${user.id}`
       );
-      const data = await response.json();
+      const data: ReposResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Failed to fetch repositories");
+        throw new Error((data as unknown as { detail: string }).detail || "Failed to fetch repositories");
       }
 
-      setRepos(data);
+      setRepos(data.repos);
+      setRequiresSelection(data.requires_selection);
+      
+      if (data.requires_selection) {
+        // Pre-populate selectedRepos with already-analyzed repos
+        const existingFullNames = analyzeResults?.map(r => r.full_name) || [];
+        setSelectedRepos(new Set(existingFullNames));
+      } else {
+        // Repos were auto-analyzed (<=5 repos), show results
+        setAnalyzeResults(data.repos.map(r => ({
+          full_name: r.full_name,
+          owner: r.full_name.split('/')[0],
+          repo: r.name,
+          clone_status: r.clone_status || { success: false },
+          dbt_project: r.dbt_project,
+        })));
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to fetch repositories"
@@ -196,6 +328,153 @@ export function GitHubConnect() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Keep ref updated for use in session restore
+  fetchReposRef.current = fetchRepos;
+
+  const toggleRepoSelection = (fullName: string) => {
+    setSelectedRepos(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fullName)) {
+        newSet.delete(fullName);
+      } else if (newSet.size < MAX_SELECTION) {
+        newSet.add(fullName);
+      }
+      return newSet;
+    });
+  };
+
+  const analyzeSelected = async () => {
+    if (!user || selectedRepos.size === 0) return;
+
+    setAnalyzing(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/github/repos/analyze?user_id=${user.id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Array.from(selectedRepos)),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to analyze repositories");
+      }
+
+      setAnalyzeResults(data.results);
+      setRequiresSelection(false);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to analyze repositories"
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // Initialize dbt paths when analyze results change (only if not already set from localStorage)
+  useEffect(() => {
+    if (analyzeResults && Object.keys(dbtPaths).length === 0) {
+      const initialPaths: Record<string, string> = {};
+      const initialValidation: Record<string, boolean | null> = {};
+      
+      analyzeResults.forEach(result => {
+        const path = result.dbt_project?.relative_path || '';
+        initialPaths[result.full_name] = path;
+        initialValidation[result.full_name] = result.dbt_project?.found || false;
+      });
+      
+      setDbtPaths(initialPaths);
+      setOriginalPaths(initialPaths);
+      setPathValidation(initialValidation);
+    }
+  }, [analyzeResults, dbtPaths]);
+
+  // Persist analysis data to localStorage when it changes
+  useEffect(() => {
+    if (analyzeResults && analyzeResults.length > 0) {
+      const dataToStore: StoredAnalysisData = {
+        analyzeResults,
+        dbtPaths,
+        originalPaths,
+        pathValidation,
+      };
+      localStorage.setItem("github_analysis_data", JSON.stringify(dataToStore));
+    }
+  }, [analyzeResults, dbtPaths, originalPaths, pathValidation]);
+
+  // Validate dbt path with debouncing
+  const validateDbtPath = async (fullName: string, path: string) => {
+    const [owner, repo] = fullName.split('/');
+    setValidatingPaths(prev => ({ ...prev, [fullName]: true }));
+    
+    try {
+      const response = await fetch(
+        `${API_URL}/github/repos/${owner}/${repo}/validate-path?path=${encodeURIComponent(path || '.')}`
+      );
+      const data = await response.json();
+      setPathValidation(prev => ({ ...prev, [fullName]: data.valid }));
+    } catch (err) {
+      setPathValidation(prev => ({ ...prev, [fullName]: false }));
+    } finally {
+      setValidatingPaths(prev => ({ ...prev, [fullName]: false }));
+    }
+  };
+
+  // Handle path input change with debounce
+  const handlePathChange = (fullName: string, newPath: string) => {
+    setDbtPaths(prev => ({ ...prev, [fullName]: newPath }));
+    setPathValidation(prev => ({ ...prev, [fullName]: null })); // Reset to loading state
+    
+    // Clear existing timer
+    if (debounceTimers.current[fullName]) {
+      clearTimeout(debounceTimers.current[fullName]);
+    }
+    
+    // Set new debounced validation
+    debounceTimers.current[fullName] = setTimeout(() => {
+      validateDbtPath(fullName, newPath);
+    }, 500);
+  };
+
+  // Save the edited path (confirm the change)
+  const handleSavePath = (fullName: string) => {
+    setOriginalPaths(prev => ({ ...prev, [fullName]: dbtPaths[fullName] }));
+  };
+
+  // Cancel path edit (revert to original)
+  const handleCancelPath = (fullName: string) => {
+    const originalPath = originalPaths[fullName] || '';
+    setDbtPaths(prev => ({ ...prev, [fullName]: originalPath }));
+    // Re-validate the original path
+    validateDbtPath(fullName, originalPath);
+  };
+
+  // Remove a repo from analyzed results
+  const handleRemoveRepo = (fullName: string) => {
+    setAnalyzeResults(prev => {
+      if (!prev) return null;
+      const updated = prev.filter(r => r.full_name !== fullName);
+      return updated.length > 0 ? updated : null;
+    });
+    // Clean up related state
+    setDbtPaths(prev => {
+      const { [fullName]: _, ...rest } = prev;
+      return rest;
+    });
+    setOriginalPaths(prev => {
+      const { [fullName]: _, ...rest } = prev;
+      return rest;
+    });
+    setPathValidation(prev => {
+      const { [fullName]: _, ...rest } = prev;
+      return rest;
+    });
   };
 
   const handleModifyAccess = async () => {
@@ -226,7 +505,16 @@ export function GitHubConnect() {
     setUser(null);
     setInstallationId(null);
     setRepos([]);
+    setAnalyzeResults(null);
+    setDbtPaths({});
+    setOriginalPaths({});
+    setPathValidation({});
+    setRequiresSelection(false);
+    setSelectedRepos(new Set());
+    
+    // Clear localStorage
     localStorage.removeItem("github_user_data");
+    localStorage.removeItem("github_analysis_data");
     localStorage.removeItem("pending_installation_id");
     localStorage.removeItem("oauth_state");
   };
@@ -250,6 +538,7 @@ export function GitHubConnect() {
             Install our GitHub App and select which repositories you want to grant access to.
           </p>
           <button
+            type="button"
             onClick={handleConnect}
             disabled={loading}
             className="connect-button"
@@ -273,7 +562,7 @@ export function GitHubConnect() {
               )}
             </div>
             <div className="user-actions">
-              <button onClick={handleDisconnect} className="disconnect-button">
+              <button type="button" onClick={handleDisconnect} className="disconnect-button">
                 Disconnect
               </button>
               <a
@@ -292,64 +581,216 @@ export function GitHubConnect() {
               <h3>Selected Repositories</h3>
               <div className="repos-actions">
                 <button
+                  type="button"
                   onClick={handleModifyAccess}
                   className="modify-button"
                 >
                   Modify Access
                 </button>
-                <button
-                  onClick={fetchRepos}
-                  disabled={loading}
-                  className="fetch-button"
-                >
-                  {loading ? "Loading..." : repos.length > 0 ? "Refresh" : "Load Repos"}
-                </button>
+                {!requiresSelection && (
+                  <button
+                    type="button"
+                    onClick={fetchRepos}
+                    disabled={loading}
+                    className="fetch-button"
+                  >
+                    {loading ? "Loading..." : analyzeResults ? "Add More Repos" : "Load Repos"}
+                  </button>
+                )}
               </div>
             </div>
 
             {!installationId && (
               <div className="no-installation">
                 <p>No repositories selected yet.</p>
-                <button onClick={handleConnect} className="install-button">
+                <button type="button" onClick={handleConnect} className="install-button">
                   Install GitHub App to select repos
                 </button>
               </div>
             )}
 
-            {repos.length > 0 && (
-              <ul className="repos-list">
-                {repos.map((repo) => (
-                  <li key={repo.id} className="repo-item">
-                    <a
-                      href={repo.html_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="repo-link"
+            {repos.length > 0 && requiresSelection && (
+              <div className="selection-section">
+                <div className="selection-header">
+                  <p className="selection-info">
+                    You have {repos.length} repositories. Please select up to {MAX_SELECTION}.
+                  </p>
+                  <span className="selection-counter">
+                    {selectedRepos.size} of {MAX_SELECTION} selected
+                  </span>
+                </div>
+                <div className="search-filter">
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Search repositories..."
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                  />
+                  {searchFilter && (
+                    <button
+                      type="button"
+                      className="clear-search"
+                      onClick={() => setSearchFilter('')}
                     >
-                      <div className="repo-header">
-                        <span className="repo-name">{repo.name}</span>
-                        {repo.private && (
-                          <span className="private-badge">Private</span>
-                        )}
-                      </div>
-                      {repo.description && (
-                        <p className="repo-description">{repo.description}</p>
-                      )}
-                      <div className="repo-meta">
-                        {repo.language && (
-                          <span className="repo-language">{repo.language}</span>
-                        )}
-                        <span className="repo-stars">
-                          ⭐ {repo.stargazers_count}
-                        </span>
-                      </div>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+                      <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <ul className="repos-list selectable">
+                  {repos
+                    .filter(repo => 
+                      repo.name.toLowerCase().includes(searchFilter.toLowerCase()) ||
+                      repo.full_name.toLowerCase().includes(searchFilter.toLowerCase())
+                    )
+                    .map((repo) => {
+                      const isSelected = selectedRepos.has(repo.full_name);
+                      const isDisabled = !isSelected && selectedRepos.size >= MAX_SELECTION;
+                      return (
+                        <li key={repo.id} className={`repo-item ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`}>
+                          <label className="repo-checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={isDisabled}
+                              onChange={() => toggleRepoSelection(repo.full_name)}
+                              className="repo-checkbox"
+                            />
+                            <div className="repo-content">
+                              <span className="repo-name">{repo.name}</span>
+                              {repo.private && (
+                                <span className="private-badge">Private</span>
+                              )}
+                            </div>
+                          </label>
+                        </li>
+                      );
+                    })}
+                </ul>
+                <div className="selection-actions">
+                  {analyzeResults && (
+                    <button
+                      type="button"
+                      onClick={() => setRequiresSelection(false)}
+                      className="cancel-selection-btn"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={analyzeSelected}
+                    disabled={selectedRepos.size === 0 || analyzing}
+                    className="analyze-button"
+                  >
+                    {analyzing ? "Selecting..." : `Select ${selectedRepos.size} Repos`}
+                  </button>
+                </div>
+              </div>
             )}
 
-            {installationId && repos.length === 0 && !loading && (
+            {analyzeResults && !requiresSelection && (
+              <div className="analyze-results">
+                {analyzeResults.map((result) => (
+                  <div key={result.full_name} className="result-card">
+                    <div className="result-card-header">
+                      <div className="result-card-title-row">
+                        <div className="result-card-title">
+                          <span className="result-repo-name">{result.repo}</span>
+                          {result.clone_status.success ? (
+                            <svg className="status-icon success" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
+                            </svg>
+                          ) : (
+                            <svg className="status-icon error" viewBox="0 0 16 16" fill="currentColor">
+                              <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                            </svg>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="remove-repo-btn"
+                          onClick={() => handleRemoveRepo(result.full_name)}
+                          title="Remove repository"
+                        >
+                          <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <span className="result-full-name">{result.full_name}</span>
+                    </div>
+                    
+                    {result.clone_status.success && (
+                      <div className="dbt-path-section">
+                        <label className="dbt-path-label">dbt Project Path</label>
+                        <div className="dbt-path-input-wrapper">
+                          <input
+                            type="text"
+                            className="dbt-path-input"
+                            value={dbtPaths[result.full_name] || ''}
+                            onChange={(e) => handlePathChange(result.full_name, e.target.value)}
+                            placeholder="e.g., my_dbt_project or ."
+                          />
+                          <div className="path-validation-icon">
+                            {validatingPaths[result.full_name] ? (
+                              <svg className="spinner" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M8 0a8 8 0 1 0 8 8A8 8 0 0 0 8 0Zm0 14A6 6 0 1 1 14 8a6 6 0 0 1-6 6Z" opacity="0.3"/>
+                                <path d="M8 2a6 6 0 0 1 6 6h2A8 8 0 0 0 8 0v2Z"/>
+                              </svg>
+                            ) : pathValidation[result.full_name] === true ? (
+                              <svg className="check-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
+                              </svg>
+                            ) : pathValidation[result.full_name] === false ? (
+                              <svg className="x-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                              </svg>
+                            ) : null}
+                          </div>
+                          {dbtPaths[result.full_name] !== originalPaths[result.full_name] && (
+                            <div className="path-action-buttons">
+                              <button
+                                type="button"
+                                className="save-path-btn"
+                                onClick={() => handleSavePath(result.full_name)}
+                                disabled={pathValidation[result.full_name] !== true}
+                                title="Save path"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="cancel-path-btn"
+                                onClick={() => handleCancelPath(result.full_name)}
+                                title="Revert changes"
+                              >
+                                <svg viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {pathValidation[result.full_name] === false && (
+                          <span className="path-error-hint">No dbt_project.yml found at this path</span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {result.clone_status.error && (
+                      <div className="clone-error">
+                        Clone failed: {result.clone_status.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {installationId && repos.length === 0 && !loading && !analyzeResults && (
               <p className="empty-repos">
                 Click "Load Repos" to see your selected repositories.
               </p>
