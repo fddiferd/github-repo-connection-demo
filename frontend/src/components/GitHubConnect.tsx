@@ -288,7 +288,7 @@ export function GitHubConnect() {
     }
   };
 
-  const fetchRepos = async () => {
+  const fetchRepos = async (retryAfterRestore = true) => {
     if (!user) return;
 
     setLoading(true);
@@ -298,6 +298,25 @@ export function GitHubConnect() {
       const response = await fetch(
         `${API_URL}/github/repos?user_id=${user.id}`
       );
+      
+      // Handle 401 by trying to restore session and retry
+      if (response.status === 401 && retryAfterRestore && installationId) {
+        try {
+          const restoreResponse = await fetch(
+            `${API_URL}/auth/restore?user_id=${user.id}&installation_id=${installationId}`,
+            { method: 'POST' }
+          );
+          const restoreResult = await restoreResponse.json();
+          if (restoreResult.success) {
+            // Session restored, retry fetch
+            setLoading(false);
+            return fetchRepos(false); // Don't retry again to avoid infinite loop
+          }
+        } catch {
+          // Restore failed, continue to show error
+        }
+      }
+      
       const data: ReposResponse = await response.json();
 
       if (!response.ok) {
@@ -345,7 +364,7 @@ export function GitHubConnect() {
     });
   };
 
-  const analyzeSelected = async () => {
+  const analyzeSelected = async (retryAfterRestore = true) => {
     if (!user || selectedRepos.size === 0) return;
 
     setAnalyzing(true);
@@ -360,6 +379,24 @@ export function GitHubConnect() {
           body: JSON.stringify(Array.from(selectedRepos)),
         }
       );
+      
+      // Handle 401 by trying to restore session and retry
+      if (response.status === 401 && retryAfterRestore && installationId) {
+        try {
+          const restoreResponse = await fetch(
+            `${API_URL}/auth/restore?user_id=${user.id}&installation_id=${installationId}`,
+            { method: 'POST' }
+          );
+          const restoreResult = await restoreResponse.json();
+          if (restoreResult.success) {
+            setAnalyzing(false);
+            return analyzeSelected(false);
+          }
+        } catch {
+          // Restore failed, continue to show error
+        }
+      }
+      
       const data = await response.json();
 
       if (!response.ok) {
@@ -590,7 +627,7 @@ export function GitHubConnect() {
                 {!requiresSelection && (
                   <button
                     type="button"
-                    onClick={fetchRepos}
+                    onClick={() => fetchRepos()}
                     disabled={loading}
                     className="fetch-button"
                   >
@@ -681,7 +718,7 @@ export function GitHubConnect() {
                   )}
                   <button
                     type="button"
-                    onClick={analyzeSelected}
+                    onClick={() => analyzeSelected()}
                     disabled={selectedRepos.size === 0 || analyzing}
                     className="analyze-button"
                   >

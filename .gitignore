@@ -3,7 +3,6 @@ backend/private-key.pem
 backend/.env
 backend/uv.lock
 backend/repos/
-backend/repos.json
 __pycache__/
 *.pyc
 *.pyo

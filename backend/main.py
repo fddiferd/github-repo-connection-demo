@@ -51,7 +51,43 @@ state_tokens: set[str] = set()
 # Cloned repos storage
 REPOS_DIR = Path(__file__).parent / "repos"
 REPOS_DIR.mkdir(exist_ok=True)
-repo_metadata: dict[str, dict] = {}  # "owner/repo" -> {path, cloned_at, pushed_at}
+
+
+def get_org_metadata_path(org: str) -> Path:
+    """Get the path to an org's metadata.json file."""
+    return REPOS_DIR / org / "metadata.json"
+
+
+def load_org_metadata(org: str) -> dict[str, dict]:
+    """Load metadata for all repos in an organization."""
+    metadata_path = get_org_metadata_path(org)
+    if metadata_path.exists():
+        try:
+            return json.loads(metadata_path.read_text())
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_org_metadata(org: str, metadata: dict[str, dict]) -> None:
+    """Save metadata for all repos in an organization."""
+    org_dir = REPOS_DIR / org
+    org_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path = get_org_metadata_path(org)
+    metadata_path.write_text(json.dumps(metadata, indent=2))
+
+
+def get_repo_metadata(owner: str, repo: str) -> dict | None:
+    """Get metadata for a specific repo."""
+    org_metadata = load_org_metadata(owner)
+    return org_metadata.get(repo)
+
+
+def set_repo_metadata(owner: str, repo: str, data: dict) -> None:
+    """Set metadata for a specific repo."""
+    org_metadata = load_org_metadata(owner)
+    org_metadata[repo] = data
+    save_org_metadata(owner, org_metadata)
 
 
 def generate_app_jwt() -> str:
@@ -153,8 +189,8 @@ async def clone_repo_internal(
             actual_ref = default_branch if ref == "main" else ref
             
             # Check if we need to re-clone (repo updated since last clone)
-            if repo_key in repo_metadata:
-                cached = repo_metadata[repo_key]
+            cached = get_repo_metadata(owner, repo)
+            if cached:
                 if cached.get("pushed_at") == pushed_at and repo_path.exists():
                     return {
                         "success": True,
@@ -208,13 +244,13 @@ async def clone_repo_internal(
                 extracted_dir = extracted_dirs[0]
                 shutil.move(str(extracted_dir), str(repo_path))
             
-            # Store metadata
-            repo_metadata[repo_key] = {
+            # Store metadata to repos/{org}/metadata.json
+            set_repo_metadata(owner, repo, {
                 "path": str(repo_path),
                 "cloned_at": datetime.datetime.now().isoformat(),
                 "pushed_at": pushed_at,
                 "ref": actual_ref,
-            }
+            })
             
             return {
                 "success": True,
